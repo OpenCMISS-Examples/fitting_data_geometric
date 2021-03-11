@@ -125,6 +125,7 @@ zeroTolerance = 0.00001
     generatedMeshUserNumber,
     meshUserNumber,
     decompositionUserNumber,
+    decomposerUserNumber,
     geometricFieldUserNumber,
     equationsSetFieldUserNumber,
     dependentFieldUserNumber,
@@ -136,20 +137,36 @@ zeroTolerance = 0.00001
     dependentDataFieldUserNumber,
     dataProjectionUserNumber,
     equationsSetUserNumber,
-    problemUserNumber) = range(1,19)
+    problemUserNumber) = range(1,20)
+
+#worldRegion = iron.Region()
+#iron.Context.WorldRegionGet(worldRegion)
 
 # Get the computational nodes information
-numberOfComputationalNodes = iron.ComputationalNumberOfNodesGet()
-computationalNodeNumber = iron.ComputationalNodeNumberGet()
+
+#computationEnvironment = iron.ComputationEnvironment()
+#iron.Context.ComputationEnvironmentGet(computationEnvironment)
+
+#worldWorkGroup = iron.WorkGroup()
+#computationEnvironment.WorldWorkGroupGet(worldWorkGroup)
+#numberOfComputationalNodes = worldWorkGroup.NumberOfGroupNodesGet()
+#computationalNodeNumber = worldWorkGroup.GroupNodeNumberGet()
+
+computationEnvironment = iron.ComputationEnvironment()
+numberOfComputationalNodes = computationEnvironment.NumberOfWorldNodesGet()
+computationalNodeNumber = computationEnvironment.WorldNodeNumberGet()
+
 
 # Create a RC coordinate system
 coordinateSystem = iron.CoordinateSystem()
+#coordinateSystem.CreateStart(coordinateSystemUserNumber,iron.Context)
 coordinateSystem.CreateStart(coordinateSystemUserNumber)
 coordinateSystem.dimension = 3
 coordinateSystem.CreateFinish()
 
 # Create a region
 region = iron.Region()
+#region.CreateStart(regionUserNumber,worldRegion)
 region.CreateStart(regionUserNumber,iron.WorldRegion)
 region.label = "FittingRegion"
 region.coordinateSystem = coordinateSystem
@@ -161,6 +178,7 @@ region.CreateFinish()
 
 # Create a tricubic Hermite basis
 basis = iron.Basis()
+#basis.CreateStart(basisUserNumber,iron.Context)
 basis.CreateStart(basisUserNumber)
 basis.type = iron.BasisTypes.LAGRANGE_HERMITE_TP
 basis.numberOfXi = 3
@@ -188,10 +206,14 @@ mesh.CreateFinish()
 # Create a decomposition for the mesh
 decomposition = iron.Decomposition()
 decomposition.CreateStart(decompositionUserNumber,mesh)
-decomposition.type = iron.DecompositionTypes.CALCULATED
-decomposition.numberOfDomains = numberOfComputationalNodes
 decomposition.CalculateFacesSet(True)
 decomposition.CreateFinish()
+
+# Decompose 
+decomposer = iron.Decomposer()
+decomposer.CreateStart(decomposerUserNumber,worldRegion,worldWorkGroup)
+decompositionIndex = decomposer.DecompositionAdd(decomposition)
+decomposer.CreateFinish()
 
 #=================================================================
 # Geometric Field
@@ -200,7 +222,7 @@ decomposition.CreateFinish()
 # Create a field for the geometry
 geometricField = iron.Field()
 geometricField.CreateStart(geometricFieldUserNumber,region)
-geometricField.meshDecomposition = decomposition
+geometricField.decomposition = decomposition
 geometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,1,1)
 geometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,2,1)
 geometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,3,1)
@@ -456,21 +478,25 @@ dataProjection.projectionType = iron.DataProjectionProjectionTypes.BOUNDARY_FACE
 dataProjection.ProjectionCandidateFacesSet([1],[iron.ElementNormalXiDirections.PLUS_XI3])
 dataProjection.CreateFinish()
 
+
+dataProjection.ResultElementNumberSet(1,1)
+dataProjection.ResultXiSet(1,[0.1,0.1])
+
 # Evaluate data projection based on geometric field
 dataProjection.DataPointsProjectionEvaluate(iron.FieldParameterSetTypes.VALUES)
 # Create mesh topology for data projection
 mesh.TopologyDataPointsCalculateProjection(dataProjection)
-# Create decomposition topology for data projection
-decomposition.TopologyDataProjectionCalculate()
+# Create decomposition data projection
+decomposition.DataProjectionCalculate()
 
 dataProjection.ResultAnalysisOutput("")
 
 dataErrorVector = numpy.zeros((numberOfDataPoints,3))
 dataErrorDistance = numpy.zeros(numberOfDataPoints)
 elementIdx=1
-numberOfProjectedDataPoints = decomposition.TopologyNumberOfElementDataPointsGet(elementIdx)
+numberOfProjectedDataPoints = decomposition.NumberOfElementDataPointsGet(elementIdx)
 for dataPointIdx in range(1,numberOfProjectedDataPoints+1):
-    dataPointNumber = decomposition.TopologyElementDataPointUserNumberGet(elementIdx,dataPointIdx)
+    dataPointNumber = decomposition.ElementDataPointUserNumberGet(elementIdx,dataPointIdx)
     errorVector = dataProjection.ResultProjectionVectorGet(dataPointNumber,3)
     dataErrorVector[dataPointNumber-1,0]=errorVector[0]
     dataErrorVector[dataPointNumber-1,1]=errorVector[1]
@@ -532,10 +558,10 @@ equationsSet.IndependentCreateFinish()
 # loop over each element's data points and set independent field values to data point locations on surface of the sphere
 elementDomain = decomposition.ElementDomainGet(1)
 if (elementDomain == computationalNodeNumber):
-    numberOfProjectedDataPoints = decomposition.TopologyNumberOfElementDataPointsGet(1)
+    numberOfProjectedDataPoints = decomposition.NumberOfElementDataPointsGet(1)
     for dataPoint in range(numberOfProjectedDataPoints):
         dataPointId = dataPoint + 1
-        dataPointNumber = decomposition.TopologyElementDataPointUserNumberGet(1,dataPointId)
+        dataPointNumber = decomposition.ElementDataPointUserNumberGet(1,dataPointId)
         dataList = dataPoints.PositionGet(dataPointNumber,3)        
         x = dataList[0]
         y = dataList[1]
@@ -583,7 +609,8 @@ problem = iron.Problem()
 problemSpecification = [iron.ProblemClasses.FITTING,
                         iron.ProblemTypes.DATA_FITTING,
                         iron.ProblemSubtypes.STATIC_FITTING]
-problem.CreateStart(problemUserNumber, problemSpecification)
+#problem.CreateStart(problemUserNumber,iron.Context,problemSpecification)
+problem.CreateStart(problemUserNumber,problemSpecification)
 problem.CreateFinish()
 
 # Create control loops
@@ -681,4 +708,4 @@ for iteration in range (1,numberOfIterations+1):
     fields.ElementsExport("DeformedGeometry" + str(iteration),"FORTRAN")
     fields.Finalise()
 
-iron.Finalise()
+iron.Finalise(iron.Context)
